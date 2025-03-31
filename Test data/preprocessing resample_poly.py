@@ -55,13 +55,13 @@ def process_ns2_file(file_path, output_path, method='resample_poly'):
     df = pd.DataFrame(downsampled_data, columns=column_names)
 
     # CSV 파일로 저장
-    df.to_csv(output_path, index=False)
+    df.to_csv(output_path, index=False, header=False)
     print(f"처리된 데이터가 {output_path}에 저장되었습니다.")
 
     return df
 
 # 사용 예시
 if __name__ == "__main__":
-    input_file = "Test data/datafile001.ns2"
-    output_file = "processed_eeg_data.csv"
+    input_file = "datafile001.ns2"
+    output_file = " processed_eeg_data2.csv"
     processed_data = process_ns2_file(input_file, output_file, method='resample_poly')
