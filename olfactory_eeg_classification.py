@@ -164,6 +164,8 @@ class OlfactoryEEGClassifier:
 
             for i, X in enumerate(X_train):
                 cov = np.cov(X)
+                # trace 정규화
+                cov /= np.trace(cov)
                 if y_train[i] == class_idx:
                     cov_target += cov
                     n_target += 1
