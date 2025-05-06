@@ -162,10 +162,10 @@ class OlfactoryEEGClassifier:
             n_target = 0
             n_non_target = 0
 
+            ## 공분산 행렬 계산 (식 5)
             for i, X in enumerate(X_train):
                 cov = np.cov(X)
-                # trace 정규화
-                cov /= np.trace(cov)
+                cov /= np.trace(cov) # trace 정규화
                 if y_train[i] == class_idx:
                     cov_target += cov
                     n_target += 1
@@ -177,22 +177,30 @@ class OlfactoryEEGClassifier:
                 cov_target /= n_target
             if n_non_target > 0:
                 cov_non_target /= n_non_target
+            ## -----------------------------------
 
+            ## 혼합 공분산 행렬 게산과 고유값 분해 (식 6)
             C = cov_target + cov_non_target
             eigvals, eigvecs = np.linalg.eigh(C)
             idx = np.argsort(eigvals)[::-1]
             eigvals = eigvals[idx]
             eigvecs = eigvecs[:, idx]
-            W = np.diag(1.0 / np.sqrt(eigvals)).dot(eigvecs.T)
+            ## -----------------------------------
 
+            ## 화이트닝 변환 및 S1,S2 계산 (식 7,8) - S1, S2는 동일한 고유 벡터를 공유함.
+            W = np.diag(1.0 / np.sqrt(eigvals)).dot(eigvecs.T)
             S1 = W.dot(cov_target).dot(W.T)
+            ## -----------------------------------
+
+            ## CSP 투영 행렬 Q 및 필터 P 구성 (식 9)
             eigvals_S1, eigvecs_S1 = np.linalg.eigh(S1)
             idx_S1 = np.argsort(eigvals_S1)[::-1]
             eigvals_S1 = eigvals_S1[idx_S1]
             eigvecs_S1 = eigvecs_S1[:, idx_S1]
-
             Q = eigvecs_S1.T.dot(W)
             spatial_filter = np.vstack((Q[:n_components, :], Q[-n_components:, :]))
+            ## -----------------------------------
+
             spatial_filters[class_idx] = spatial_filter
 
         self.spatial_filter = spatial_filters
@@ -247,10 +255,16 @@ class OlfactoryEEGClassifier:
             sample_features = []
             for class_idx in range(n_classes):
                 if class_idx in spatial_filters:
+                    ## 투영행렬 Zc 계산 (식 10)
                     filtered = np.dot(spatial_filters[class_idx], cd2_matrix)
+                    ## -----------------------------------
+
+                    ## 로그 정규화 분산 특징 추출 (식 11)
                     var_vector = np.var(filtered, axis=1)
                     norm_var = var_vector / np.sum(var_vector)
                     log_var = np.log(norm_var)
+                    ## -----------------------------------
+
                     sample_features.extend(log_var)
             features.append(sample_features)
         print(f"Feature extraction completed in {time.time() - start_time:.2f}s")
