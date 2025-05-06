@@ -53,7 +53,7 @@ class OlfactoryEEGClassifier:
         print(f"Data directory: {self.data_dir}")
         all_files = [f for f in os.listdir(self.data_dir) if f.endswith('.set')]
         print(f"Found {len(all_files)} .set files.")
-
+        # selected_channels = [3, 28, 5, 7, 4]  # 원하는 채널 인덱스 사용 시 주석 해제
         for file in all_files:
             file_path = os.path.join(self.data_dir, file)
             # 파일명 예: "Sub. 1_A_001.set" → subject 정보는 첫 번째 토큰, 클래스는 두 번째 토큰
@@ -67,6 +67,7 @@ class OlfactoryEEGClassifier:
                 # EEGLAB 파일 읽기 (내부적으로 .fdt 파일을 참조)
                 raw = mne.io.read_raw_eeglab(file_path, preload=True, verbose=False)
                 eeg_data = raw.get_data()  # shape: (n_channels, n_times)
+                # eeg_data = eeg_data[selected_channels, :]  # 선택한 채널만 사용 시 주석 해제
                 if eeg_data.size == 0:
                     print(f"Empty file: {file_path}")
                 else:
@@ -253,93 +254,3 @@ class OlfactoryEEGClassifier:
         print(f"Feature extraction completed in {time.time() - start_time:.2f}s")
 
         return np.array(features), y_data
-
-    def train(self):
-        """Train the complete pipeline: data loading, feature extraction, SVM training, and evaluation."""
-        print("Loading data...")
-        X_all, y_all, _ = self.load_data()
-        print(f"Data loaded: {len(X_all)} samples with {len(np.unique(y_all))} classes")
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_all, y_all, test_size=self.test_size, random_state=self.random_state, stratify=y_all
-        )
-
-        print("Extracting features for training data...")
-        X_train_features, y_train = self.extract_features(X_train, y_train, is_training=True)
-
-        print("Training SVM classifier...")
-        self.clf = SVC(kernel='linear', C=1.0, random_state=self.random_state)
-        self.clf.fit(X_train_features, y_train)
-
-        print("Extracting features for testing data...")
-        X_test_features, y_test = self.extract_features(X_test, y_test, self.spatial_filter, is_training=False)
-
-        print("Evaluating classifier...")
-        y_pred = self.clf.predict(X_test_features)
-        accuracy = accuracy_score(y_test, y_pred)
-        conf_matrix = confusion_matrix(y_test, y_pred)
-        class_report = classification_report(y_test, y_pred)
-
-        print(f"Accuracy: {accuracy:.4f}")
-        print("Confusion Matrix:")
-        print(conf_matrix)
-        print("Classification Report:")
-        print(class_report)
-
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=self.classes[:len(np.unique(y_all))],
-                    yticklabels=self.classes[:len(np.unique(y_all))])
-        plt.xlabel('Predicted')
-        plt.ylabel('True')
-        plt.title('Confusion Matrix')
-        plt.tight_layout()
-        plt.savefig('confusion_matrix.png')
-        plt.show()
-
-        return accuracy, conf_matrix, class_report
-
-    def predict(self, X_new):
-        """
-        Predict class labels for new EEG data.
-
-        Parameters:
-        -----------
-        X_new : numpy.ndarray
-            New EEG data with shape (n_samples, n_channels, n_times)
-
-        Returns:
-        --------
-        y_pred : numpy.ndarray
-            Predicted class labels
-        """
-        if self.clf is None:
-            raise ValueError("Classifier not trained. Call train() first.")
-
-        wavelet_features_all = []
-        for i in range(len(X_new)):
-            wf = self.apply_wavelet_decomposition(X_new[i])
-            wavelet_features_all.append(wf)
-        cd2_matrices = self.compute_cd2_matrix(np.array(wavelet_features_all))
-
-        features = []
-        n_classes = len(self.spatial_filter)
-        for cd2_matrix in cd2_matrices:
-            sample_features = []
-            for class_idx in range(n_classes):
-                if class_idx in self.spatial_filter:
-                    filtered = np.dot(self.spatial_filter[class_idx], cd2_matrix)
-                    var_vector = np.var(filtered, axis=1)
-                    log_var = np.log(var_vector)
-                    sample_features.extend(log_var)
-            features.append(sample_features)
-        y_pred = self.clf.predict(np.array(features))
-        return y_pred
-
-
-# Example usage when running this module directly.
-if __name__ == "__main__":
-    data_directory = "preprocessed_5th"  # Folder containing .set files
-    eeg_classifier = OlfactoryEEGClassifier(data_directory)
-    accuracy, conf_matrix, class_report = eeg_classifier.train()
-    print(f"Final accuracy: {accuracy:.4f}")
