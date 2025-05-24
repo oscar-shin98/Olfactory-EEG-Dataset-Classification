@@ -1,7 +1,7 @@
 # olfactory_eeg_classification.py
 import os
 import numpy as np
-import pandas as pd  # pandas는 직접 사용되지 않지만, 일반적인 데이터 분석 라이브러리로 남겨둘 수 있습니다.
+import pandas as pd
 import pywt
 from sklearn.svm import SVC
 # from sklearn.metrics import accuracy_score, confusion_matrix, classification_report # 이 파일에서 직접 사용 안 함
@@ -13,7 +13,7 @@ import time
 import mne
 
 
-def select_channels_by_correlation(X_all_data, all_channel_names, threshold=0.85, verbose=True):
+def select_channels_by_correlation(X_all_data, all_channel_names, threshold, verbose=True):
     """
     EEG 채널 간의 상관 관계를 기반으로 채널을 선택합니다.
 
@@ -50,12 +50,12 @@ def select_channels_by_correlation(X_all_data, all_channel_names, threshold=0.85
     corr_matrix = np.corrcoef(data_for_corr)
 
     if verbose:
-        plt.figure(figsize=(max(8, n_channels / 2), max(6, n_channels / 2.5)))  # 채널 수에 따라 크기 조절
-        sns.heatmap(corr_matrix, annot=False, cmap='coolwarm', xticklabels=all_channel_names,
-                    yticklabels=all_channel_names)
-        plt.title("Channel Correlation Matrix")
-        plt.tight_layout()
-        plt.show()
+        # plt.figure(figsize=(max(8, n_channels / 2), max(6, n_channels / 2.5)))  # 채널 수에 따라 크기 조절
+        # sns.heatmap(corr_matrix, annot=False, cmap='coolwarm', xticklabels=all_channel_names,
+        #             yticklabels=all_channel_names)
+        # plt.title("Channel Correlation Matrix")
+        # plt.tight_layout()
+        # plt.show()
 
         print(f"\nChannels pairs with |corr| > {threshold}:")
         for i in range(n_channels):
@@ -64,9 +64,9 @@ def select_channels_by_correlation(X_all_data, all_channel_names, threshold=0.85
                     print(f"  {all_channel_names[i]}-{all_channel_names[j]}: {corr_matrix[i, j]:.3f}")
 
 
+    #-------------------------------------------------------------------채널 제거 시 주석 해제
     channels_to_keep_indices = list(range(n_channels))
     channels_to_remove_indices = []
-
     for i in range(n_channels):
         if i in channels_to_remove_indices:
             continue
@@ -94,6 +94,24 @@ def select_channels_by_correlation(X_all_data, all_channel_names, threshold=0.85
         return [0], [all_channel_names[0]]
 
     return final_selected_indices, final_selected_names
+    # ------------------------------------------------------------------
+
+    #-------------------------------------------------------------------채널 30개 유지 시 주석 해제
+    # final_selected_indices = list(range(n_channels))
+    # final_selected_names = all_channel_names.copy()
+    # print(final_selected_indices)
+    # print(final_selected_names)
+    # if verbose:
+    #     print(f"\nOriginal number of channels: {n_channels}")
+    #     print("채널 제거 로직 비활성화 — 모든 채널 유지합니다.")
+    #     print(f"Selected channel indices: {final_selected_indices}")
+    #
+    #return final_selected_indices, final_selected_names
+    #------------------------------------------------------------------
+
+    # 채널 5개 쓸 때 [FP1, CPZ, FZ, FP2, P3] [3, 28, 5, 7, 4] <--- 이거 주석처리
+    #return [3,4,5,7,28], ['FP1','P3','FZ','FP2','CPZ']
+
 
 
 class OlfactoryEEGClassifier:
@@ -133,7 +151,11 @@ class OlfactoryEEGClassifier:
                 eeg_data_original = raw.get_data()
 
                 if file_idx == 0:
-                    self.all_channel_names_loaded_ = raw.ch_names
+                    # self.all_channel_names_loaded_ = raw.ch_names
+                    self.all_channel_names_loaded_ = ['CP3', 'FC3', 'FCZ', 'FP1', 'P3', 'FZ', 'CZ', 'FP2',
+                                                      'P4', 'F8', 'OZ', 'PZ', 'TP8', 'F7', 'F4', 'F3',
+                                                      'CP4', 'T6', 'FC4', 'T4', 'C3', 'FT7', 'O2', 'C4',
+                                                      'TP7', 'T5', 'O1', 'T3', 'CPZ', 'FT8']
                     print(
                         f"Original channel names from first file ({len(self.all_channel_names_loaded_)} channels): {self.all_channel_names_loaded_}")
                     if self.selected_channel_indices is not None:
@@ -157,9 +179,6 @@ class OlfactoryEEGClassifier:
                     X_all.append(eeg_data_processed)
                     y_all.append(ord(class_label) - ord('A'))
                     subjects.append(subject_label)
-                    if file_idx < 3:  # 처음 몇 개 파일만 상세 정보 출력
-                        print(
-                            f"Loaded {file_path}, Original shape: {eeg_data_original.shape}, Processed EEG data shape: {eeg_data_processed.shape}")
 
             except Exception as e:
                 print(f"Error reading or processing {file_path}: {e}")
@@ -189,17 +208,21 @@ class OlfactoryEEGClassifier:
         # from apply_wavelet_decomposition. It's essentially a pass-through or format conversion if needed.
         return np.array(wavelet_features_all)
 
-    def apply_ovr_csp(self, X_train_cd_coeffs, y_train, n_components_ratio=0.25, n_components_csp=2):
+    def apply_ovr_csp(self, X_train_cd_coeffs, y_train, n_components_ratio=0.25):
         n_classes = len(np.unique(y_train))
         n_samples, n_channels, n_cd_features = X_train_cd_coeffs.shape
 
-        #n_components_csp = max(1, int(n_channels * n_components_ratio))
-        if 2 * n_components_csp > n_channels:
-            n_components_csp = n_channels // 2
-        if n_components_csp == 0 and n_channels > 0:
-            n_components_csp = 1  # Ensure at least one component if possible
-        if n_channels == 0:
-            raise ValueError("Cannot apply CSP with 0 channels.")
+        # OVR-CSP 필터 갯수 비율로 정할 때 주석 해제
+        # n_components_csp = max(1, int(n_channels * n_components_ratio))
+        # if 2 * n_components_csp > n_channels:
+        #     n_components_csp = n_channels // 2
+        # if n_components_csp == 0 and n_channels > 0:
+        #     n_components_csp = 1  # Ensure at least one component if possible
+        # if n_channels == 0:
+        #     raise ValueError("Cannot apply CSP with 0 channels.")
+
+        ## OVR-CSP 필터의 갯수는 채널의 절반으로 설정 0522
+        n_components_csp = n_channels // 2
 
         print(
             f"CSP using {n_components_csp} components per side (total up to {2 * n_components_csp} filters for {n_channels} channels).")
@@ -210,6 +233,7 @@ class OlfactoryEEGClassifier:
             cov_non_target = np.zeros((n_channels, n_channels))
             n_target, n_non_target = 0, 0
 
+            ## 공분산 행렬 계산 (식 5)
             for i in range(n_samples):
                 # X_train_cd_coeffs[i] is (n_channels, n_cd_features)
                 cov = np.cov(X_train_cd_coeffs[i])
@@ -238,10 +262,10 @@ class OlfactoryEEGClassifier:
                 cov_non_target /= n_non_target
 
             C = cov_target + cov_non_target
-            eigvals, eigvecs = eig(C)  # Use eig for potentially non-symmetric, though cov should be symmetric
-            eigvals = np.real(eigvals)  # Ensure real
-            eigvecs = np.real(eigvecs)
-
+            # eigvals, eigvecs = eig(C)  # Use eig for potentially non-symmetric, though cov should be symmetric
+            # eigvals = np.real(eigvals)  # Ensure real
+            # eigvecs = np.real(eigvecs)
+            eigvals, eigvecs = np.linalg.eigh(C)
             idx = np.argsort(eigvals)[::-1]
             eigvals = eigvals[idx]
             eigvecs = eigvecs[:, idx]
@@ -251,10 +275,10 @@ class OlfactoryEEGClassifier:
             W_transform_matrix = np.diag(1.0 / np.sqrt(valid_eigvals)).dot(eigvecs.T)
 
             S1 = W_transform_matrix.dot(cov_target).dot(W_transform_matrix.T)
-            eigvals_S1, eigvecs_S1 = eig(S1)
-            eigvals_S1 = np.real(eigvals_S1)
-            eigvecs_S1 = np.real(eigvecs_S1)
-
+            # eigvals_S1, eigvecs_S1 = eig(S1)
+            # eigvals_S1 = np.real(eigvals_S1)
+            # eigvecs_S1 = np.real(eigvecs_S1)
+            eigvals_S1, eigvecs_S1 = np.linalg.eigh(S1)
             idx_S1 = np.argsort(eigvals_S1)[::-1]
             eigvecs_S1 = eigvecs_S1[:, idx_S1]
             Q = eigvecs_S1.T.dot(W_transform_matrix)
@@ -274,6 +298,14 @@ class OlfactoryEEGClassifier:
         return spatial_filters
 
     def extract_features(self, X_data, y_data, spatial_filters_to_use=None, is_training=True):
+
+        # 실행 시간을 저장할 딕셔너리
+        times = {
+            "wavelet_decomposition_time": 0.0,
+            "ovr_csp_learning_time": 0.0,  # CSP 필터 학습 시간 (훈련 시에만)
+            "feature_extraction_from_CSP": 0.0  # 필터 적용 및 최종 특징 추출 시간
+        }
+
         n_samples_data = X_data.shape[0]
         if n_samples_data == 0:
             return np.array([]), np.array([])
@@ -287,7 +319,8 @@ class OlfactoryEEGClassifier:
         for i in range(n_samples_data):
             wf = self.apply_wavelet_decomposition(X_data[i])
             wavelet_coeffs_all_samples.append(wf)
-        print(f"Wavelet decomposition completed in {time.time() - start_time:.2f}s")
+        times["wavelet_decomposition_time"] = time.time() - start_time
+        print(f'Wavelet decomposition completed in {times["wavelet_decomposition_time"]:.2f}s')
 
         # cd_coeffs_matrices shape: (n_samples, n_channels, n_cd_features)
         cd_coeffs_matrices = self.compute_cd2_matrix(np.array(wavelet_coeffs_all_samples))
@@ -298,13 +331,16 @@ class OlfactoryEEGClassifier:
             start_time = time.time()
             current_spatial_filters = self.apply_ovr_csp(cd_coeffs_matrices, y_data)
             self.spatial_filter = current_spatial_filters  # Store filters from training
-            print(f"OVR-CSP completed in {time.time() - start_time:.2f}s")
+            times["ovr_csp_learning_time"] = time.time() - start_time
+            print(f'OVR-CSP completed in {times["ovr_csp_learning_time"]:.2f}s')
 
         if current_spatial_filters is None or not current_spatial_filters:
             print("Error: Spatial filters are not available. Extracting basic log-variance features per channel.")
             features_list = []
             num_dummy_filters_per_class = X_data.shape[1]  # Use number of channels as dummy filter count
             for cd_matrix_sample in cd_coeffs_matrices:
+
+                # 로그 정규화 분산
                 var_vector = np.var(cd_matrix_sample, axis=1)
                 sum_var = np.sum(var_vector)
                 if sum_var == 0:
@@ -313,6 +349,10 @@ class OlfactoryEEGClassifier:
                     norm_var = var_vector / sum_var
                 epsilon = 1e-9
                 log_var_features = np.log(norm_var + epsilon)
+
+                # var_vector = np.var(cd_matrix_sample, axis=1)
+                # log_var_features = var_vector  # 변수 이름은 그대로 두거나 feature_vector 등으로 변경 가능
+
                 # Repeat for each class to match expected feature dimension if CSP was used
                 repeated_features = np.tile(log_var_features, n_unique_classes)[
                                     :num_dummy_filters_per_class * n_unique_classes]
@@ -361,5 +401,6 @@ class OlfactoryEEGClassifier:
                         f"Warning: No spatial filter for class {class_idx_key} or filter is empty. Using zero features for this class component.")
                 sample_total_features.extend(log_var_class_features)
             features_list.append(sample_total_features)
-        print(f"Feature extraction from CSP completed in {time.time() - start_time:.2f}s")
-        return np.array(features_list), y_data
+        times["feature_extraction_from_CSP"] = time.time() - start_time
+        print(f'Feature extraction from CSP completed in {times["feature_extraction_from_CSP"]:.2f}s')
+        return np.array(features_list), y_data, times
