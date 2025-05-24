@@ -67,6 +67,8 @@ def select_channels_by_correlation(X_all_data, all_channel_names, threshold, ver
     #-------------------------------------------------------------------채널 제거 시 주석 해제
     channels_to_keep_indices = list(range(n_channels))
     channels_to_remove_indices = []
+    channels_to_remove_indices = set()  # 중복 제거를 위해 set 사용
+
     for i in range(n_channels):
         if i in channels_to_remove_indices:
             continue
@@ -74,10 +76,35 @@ def select_channels_by_correlation(X_all_data, all_channel_names, threshold, ver
             if j in channels_to_remove_indices:
                 continue
             if abs(corr_matrix[i, j]) > threshold:
-                channels_to_remove_indices.append(j)
-                if verbose:
-                    print(
-                        f"Channel '{all_channel_names[j]}' (idx {j}) marked for removal due to high correlation with '{all_channel_names[i]}' (idx {i}): {corr_matrix[i, j]:.2f}")
+                # i, j 각각의 평균 상관계수 계산 (자기 자신은 제외)
+                avg_corr_i = np.mean([abs(corr_matrix[i, k]) for k in range(n_channels) if k != i])
+                avg_corr_j = np.mean([abs(corr_matrix[j, k]) for k in range(n_channels) if k != j])
+
+                if avg_corr_i > avg_corr_j:
+                    channels_to_remove_indices.add(i)
+                    if verbose:
+                        print(
+                            f"Channel '{all_channel_names[i]}' (idx {i}) marked for removal due to higher average correlation ({avg_corr_i:.2f}) than '{all_channel_names[j]}' (idx {j}): {avg_corr_j:.2f}"
+                        )
+                    break  # i가 제거됐으므로 더 비교할 필요 없음
+                else:
+                    channels_to_remove_indices.add(j)
+                    if verbose:
+                        print(
+                            f"Channel '{all_channel_names[j]}' (idx {j}) marked for removal due to higher average correlation ({avg_corr_j:.2f}) than '{all_channel_names[i]}' (idx {i}): {avg_corr_i:.2f}"
+                        )
+
+    # for i in range(n_channels):
+    #     if i in channels_to_remove_indices:
+    #         continue
+    #     for j in range(i + 1, n_channels):
+    #         if j in channels_to_remove_indices:
+    #             continue
+    #         if abs(corr_matrix[i, j]) > threshold:
+    #             channels_to_remove_indices.append(j)
+    #             if verbose:
+    #                 print(
+    #                     f"Channel '{all_channel_names[j]}' (idx {j}) marked for removal due to high correlation with '{all_channel_names[i]}' (idx {i}): {corr_matrix[i, j]:.2f}")
 
     final_selected_indices = [idx for idx in channels_to_keep_indices if idx not in channels_to_remove_indices]
     final_selected_names = [all_channel_names[i] for i in final_selected_indices]
