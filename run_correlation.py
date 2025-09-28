@@ -1,15 +1,19 @@
 import os
 import numpy as np
-from sklearn.model_selection import KFold
-from sklearn.metrics import accuracy_score
-import mne  # To read raw file for channel names if needed
 import time
+import mne
+from sklearn.model_selection import StratifiedKFold  # StratifiedKFold가 분류 문제에 더 적합합니다.
+from sklearn.model_selection import KFold
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Import custom classifier and selection
 from correlation_classification import OlfactoryEEGClassifier, select_channels_by_correlation
+
 
 def run_cross_validation(data_dir,
                          n_folds=5,
@@ -50,7 +54,7 @@ def run_cross_validation(data_dir,
     clf = OlfactoryEEGClassifier(data_dir,
                                  selected_channel_indices=sel_idx,
                                  random_state=random_state_cv)
-    X, y, _ = clf.load_data()
+    X, y, groups = clf.load_data()  # groups 변수 추가
     print(f"Step 3: Loaded data shape: {X.shape}, classes: {np.unique(y)}")
 
     # Prepare classifiers and timing lists
@@ -62,6 +66,12 @@ def run_cross_validation(data_dir,
     accuracies = {name: [] for name in classifiers}
     fit_times = {name: [] for name in classifiers}
 
+    # ==================== 추가된 부분 (1/3) ====================
+    # 모든 fold의 예측 결과를 저장하기 위한 변수
+    all_y_true = {name: [] for name in classifiers}
+    all_y_pred = {name: [] for name in classifiers}
+    # ========================================================
+
     # timing lists for train/test feature extraction
     train_wavelet_decomposition_time_list = []
     train_ovr_csp_learning_times_list = []
@@ -69,8 +79,9 @@ def run_cross_validation(data_dir,
     test_wavelet_decomposition_time_list = []
     test_feature_extraction_from_CSP_list = []
 
-    # K-Fold cross-validation
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state_cv)
+    # K-Fold cross-validation (StratifiedKFold 사용)
+    #kf = KFold(n_splits=n_folds, shuffle=True, random_state=random_state_cv)
+    kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state_cv)
     for fold, (train_idx, test_idx) in enumerate(kf.split(X, y), 1):
         print(f"\n--- Fold {fold}/{n_folds} ---")
         X_train, X_test = X[train_idx], X[test_idx]
@@ -104,6 +115,12 @@ def run_cross_validation(data_dir,
             accuracies[name].append(acc)
             print(f"{name} accuracy: {acc:.4f}")
 
+            # ==================== 추가된 부분 (2/3) ====================
+            # 현재 fold의 실제값과 예측값을 전체 리스트에 추가
+            all_y_true[name].extend(y_test_proc)
+            all_y_pred[name].extend(y_pred)
+            # ========================================================
+
     # Summary
     print("\n--- Cross-Validation Summary ---")
     for name in classifiers:
@@ -136,6 +153,30 @@ def run_cross_validation(data_dir,
         print(
             f"  Mean Feature extraction from CSP (apply filters & log-var) completed time: {np.mean(test_feature_extraction_from_CSP_list):.3f}s")
 
+    # ==================== 추가된 부분 (3/3) ====================
+    # 최종 리포트 및 Confusion Matrix 출력
+    print("\n--- Final Performance Evaluation ---")
+    class_labels = np.unique(y)  # 전체 데이터의 클래스 라벨
+    for name in classifiers:
+        print(f"\n--- Detailed Report for {name} ---")
+
+        # Classification Report (Precision, Recall, F1-score)
+        report = classification_report(all_y_true[name], all_y_pred[name], target_names=[str(c) for c in class_labels], digits=4)
+        print(report)
+
+        # Confusion Matrix
+        cm = confusion_matrix(all_y_true[name], all_y_pred[name])
+
+        # Plotting Confusion Matrix
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=class_labels, yticklabels=class_labels)
+        plt.title(f'Confusion Matrix for {name}')
+        plt.ylabel('Actual Label')
+        plt.xlabel('Predicted Label')
+        plt.show()
+    # ========================================================
+
     return {'accuracy': accuracies, 'fit_time': fit_times,
             'train_times': {
                 'wavelet': train_wavelet_decomposition_time_list,
@@ -155,5 +196,5 @@ if __name__ == "__main__":
     else:
         run_cross_validation(data_dir,
                              n_folds=5,
-                             correlation_threshold=0.85,
+                             correlation_threshold=0.98,  # 예시 임계값
                              random_state_cv=42)
